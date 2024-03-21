@@ -3,8 +3,7 @@ import cv2
 import os
 import matplotlib
 
-matplotlib.rcParams["backend"] = "macosx"
-matplotlib.use("macosx")
+matplotlib.rcParams["backend"] = "TkAgg"
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib import cm
