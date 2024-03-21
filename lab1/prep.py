@@ -3,8 +3,8 @@ import cv2
 import os
 import matplotlib
 
-matplotlib.rcParams["backend"] = "TkAgg"
-matplotlib.use("TkAgg")
+matplotlib.rcParams["backend"] = "macosx"
+matplotlib.use("macosx")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib import cm
@@ -257,7 +257,7 @@ class Inka:
     def display_video_and_audio(self):
         initial_frame = self.frames[0]
         fig = plt.figure(1, figsize=(12, 6))
-        fig.canvas.manager.window.wm_geometry("+0+0")
+        #fig.canvas.manager.window.wm_geometry("+0+0")
 
         plt.subplot(2, 2, 1)
         initial_frame_rgb = cv2.cvtColor(initial_frame, cv2.COLOR_GRAY2RGB)
@@ -282,12 +282,12 @@ class Inka:
         plt.subplot(2, 2, 3)
         print("sr: ", self.sr)
         print("y len: ", len(self.y))
-        #librosa.display.waveshow(self.y, sr=self.sr)
+        librosa.display.waveshow(self.y, sr=self.sr)
         self.line_audio = plt.axvline(x=10, ymin=0, ymax=1, color="r", linewidth="1")
 
         # --- wave processed
         plt.subplot(2, 2, 4)
-        #librosa.display.waveshow(self.y2, sr=self.sr)
+        librosa.display.waveshow(self.y2, sr=self.sr)
         self.line_audio_proc = plt.axvline(x=0, ymin=0, ymax=1, color="r", linewidth="1")
         (self.signal_plot,) = plt.plot(self.signal_x, self.signal_y, "r")
 
@@ -296,7 +296,7 @@ class Inka:
             self.anim_process_frame,
             # fargs=(frames, frame_median, im_video, im_video_proc, line_audio, line_audio_proc),
             frames=len(self.frames),
-            interval=0.1,
+            interval=0.05,
             blit=True,
         )
         plt.show()
