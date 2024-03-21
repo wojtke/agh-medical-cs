@@ -172,6 +172,7 @@ class Inka:
             self.signal_y = [0]
             self.roi_cx = 490
             self.roi_cy = 50
+            roi_desc_mean = 0
         if i > 20:
             roi_x1 = self.roi_cx - self.roi_size
             roi_x2 = self.roi_cx + self.roi_size
@@ -195,6 +196,9 @@ class Inka:
             from_median_initial20_diff = np.abs(frame_filtered - self.median_initial20)
             roi_no_tresh = from_median_initial20_diff[roi_y1:roi_y2, roi_x1:roi_x2]
             roi_desc = np.sum(roi_no_tresh) / 10000
+            roi_desc_mean = roi_desc_mean * 0.9 + roi_desc * 0.1
+
+            roi_desc = roi_desc_mean - roi_desc
             self.signal_x.append(0.033 * i)
             self.signal_y.append(roi_desc)
             print("roi desc:", roi_desc)
