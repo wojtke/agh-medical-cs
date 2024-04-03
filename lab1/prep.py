@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import numpy as np
 import cv2
 import os
 import matplotlib
 
-matplotlib.rcParams["backend"] = "TkAgg"
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib import cm
@@ -11,14 +13,15 @@ import time
 import pickle
 import librosa
 import librosa.display
-import threading
-from pygame import mixer
 from scipy.signal import butter, lfilter
 from scipy.ndimage import gaussian_filter
 
 
 class Inka:
-    def __init__(self):
+    def __init__(self, videopath: str, audiopath: str, start_x: int, start_y: int):
+        self.videopath = videopath
+        self.audiopath = audiopath
+
         self.use3d = True
         self.frames = None
         self.frames_filtered = None
@@ -38,8 +41,8 @@ class Inka:
         self.surface_plot = None
         self.xx, self.yy = np.meshgrid(np.arange(0, 800, 1), np.arange(0, 600, 1))
         self.roi_size = 80 // 2
-        self.roi_cx = 490
-        self.roi_cy = 50
+        self.roi_cx = start_x
+        self.roi_cy = start_y
         self.roi_color = (255, 255, 255)
         self.roi_thickness = 2
         self.signal_x = [0]
@@ -47,19 +50,19 @@ class Inka:
         self.signal_plot = None
         self.median_initial20 = None
 
-        self.roi_desc_ema = 0
-
         # --- load data
 
     def load_audio_and_video(self):
-        self.frames, self.frames_filtered = self.load_video_data()
-        self.y, self.sr = self.load_audio_data()
+        self.frames, self.frames_filtered = self.load_video_data(self.videopath)
+        self.y, self.sr = self.load_audio_data(self.audiopath)
 
     @staticmethod
-    def load_video_data():
+    def load_video_data(videopath: str):
         # todo: enter paths to dataset dir and video file
-        path_dir = "."
-        video_filename = "video1.wmv"
+        videopath = Path(videopath)
+
+        path_dir = str(videopath.parent)
+        video_filename = videopath.name
 
         pickle_filename = video_filename[:-3] + "p"
         path_video = os.path.join(path_dir, video_filename)
@@ -68,7 +71,7 @@ class Inka:
         print("video file  ", path_video, " exists: ", os.path.exists(path_video))
         print("pickle file ", path_pickle, " exists: ", is_pickle)
 
-        if not is_pickle or True: ## TODO: remove True
+        if not is_pickle:
             vid = cv2.VideoCapture(path_video)
             count = 0
             count_max = 2000
@@ -89,7 +92,10 @@ class Inka:
             print("gauss filtering...")
             # todo: implement gaussian filtering
             # this should be a list of filtered vieo frames
-            frames_filtered = [cv2.GaussianBlur(f, (5, 5), 0) for f in frames]
+            frames_filtered = []
+            for frame in frames:
+                filtered = gaussian_filter(frame, sigma=1.0)
+                frames_filtered.append(filtered)
             print("gauss filtering finished")
 
             with open(path_pickle, "wb") as handle:
@@ -110,23 +116,22 @@ class Inka:
         return frames, frames_filtered
 
     @staticmethod
-    def load_audio_data():
+    def load_audio_data(audiopath: str):
         # todo: enter path to audio file
-        audio_path = "audio1.wav"
-        y, sr = librosa.load(audio_path, sr=16000)
+        y, sr = librosa.load(audiopath, sr=16000)
         print("audio data loaded, len: ", len(y))
         return y, sr
 
     # --- audio processing
     def process_audio(self):
         self.y2 = Inka.butter_bandpass_filter(self.y, 500, 4000, self.sr, order=6)
-        self.y2 *= 400
+        self.y2 *= 400  # just more intuitive scale
 
     @staticmethod
     def butter_bandpass(lowcut, highcut, fs, order=5):
         # todo: implement bandpass butterworth filter
         # hint: normalize the low and highcuts using the sampling rate
-        b, a = butter(order, [lowcut / (fs / 2), highcut / (fs / 2)], btype="band")
+        b, a = butter(order, [lowcut, highcut], btype="bandpass", fs=fs)
         return b, a
 
     @staticmethod
@@ -149,17 +154,18 @@ class Inka:
         start_idx = np.max([0, i - win_len])
         end_idx = np.max([1, i])
         # todo: calculate median of frames between start and end idxs
-        self.frame_median = np.median(self.frame_array_filtered[start_idx:end_idx, :, :], axis=0)
+        self.frame_median = np.median(self.frames_filtered[start_idx:end_idx], axis=0)
 
         # todo: calculate the difference between the filtered frames and the median
         # hint: normalize the frame values afterwards
-        frame_diff_median = np.abs(frame_filtered - self.frame_median).astype(np.uint8)
+        frame_diff_median = np.abs(frame_filtered - self.frame_median)
+
         # todo: reduce low values to 0
-        # hint: use thresholding
-        threshold = 20
+        threshold = 80
+        frame_diff_median[frame_diff_median < threshold] = 0
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-        frame_diff_median_rgb = cv2.applyColorMap(frame_diff_median, cv2.COLORMAP_AUTUMN)
+        frame_diff_median_rgb = cv2.applyColorMap(frame_diff_median.astype(np.uint8), cv2.COLORMAP_AUTUMN)
         frame_diff_median_rgb = cv2.cvtColor(frame_diff_median_rgb, cv2.COLOR_BGR2RGB)
 
         frame_rgb[frame_diff_median > threshold] = 0
@@ -169,13 +175,9 @@ class Inka:
         # todo: change the ROI descriptor
         # --- tracking
         # reinitialize
-
         if i == 0:
             self.signal_x = [0]
             self.signal_y = [0]
-            self.roi_cx = 490
-            self.roi_cy = 50
-
         if i > 20:
             roi_x1 = self.roi_cx - self.roi_size
             roi_x2 = self.roi_cx + self.roi_size
@@ -187,7 +189,19 @@ class Inka:
             # # already after one thresholding, now just to binarize
             ret_val, roi_binary = cv2.threshold(roi, 10, 255, cv2.THRESH_BINARY)
             roi_moments = cv2.moments(roi_binary)
-            if roi_moments["m00"] != 0:
+            # print(roi_moments["m00"])
+            # if 5 < roi_moments["m00"] < 10_000:
+
+            y2 = np.abs(self.y2)
+            audio_idx = int(i / 30 * self.sr)
+            audio_datapoints_per_frame = int(self.sr / 30)
+            hamming_window = np.hamming(audio_datapoints_per_frame * 2)
+            audio_signal_ampl = np.mean(
+                hamming_window * y2[audio_idx - audio_datapoints_per_frame : audio_idx + audio_datapoints_per_frame]
+            )
+            print(audio_signal_ampl)
+
+            if roi_moments["m00"] and audio_signal_ampl > 0.02:
                 # print(roi_moments)
                 blob_cx = int(roi_moments["m10"] / roi_moments["m00"])
                 blob_cy = int(roi_moments["m01"] / roi_moments["m00"])
@@ -196,12 +210,10 @@ class Inka:
                 self.roi_cy = min(frame.shape[0], max(self.roi_size, roi_y1 + blob_cy))
             else:
                 pass
+
             from_median_initial20_diff = np.abs(frame_filtered - self.median_initial20)
             roi_no_tresh = from_median_initial20_diff[roi_y1:roi_y2, roi_x1:roi_x2]
             roi_desc = np.sum(roi_no_tresh) / 10000
-            self.roi_desc_ema = self.roi_desc_ema * 0.9 + roi_desc * 0.1
-
-            roi_desc = self.roi_desc_ema - roi_desc
             self.signal_x.append(0.033 * i)
             self.signal_y.append(roi_desc)
             print("roi desc:", roi_desc)
@@ -246,7 +258,7 @@ class Inka:
     # --- display
     @staticmethod
     def display_spectro(y, sr):
-        fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(12, 6))
+        fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(14, 8))
         fig.canvas.manager.window.wm_geometry("+%d+%d" % (0, 0))
         D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
         img = librosa.display.specshow(D, y_axis="linear", x_axis="time", sr=sr, ax=ax[0])
@@ -262,8 +274,8 @@ class Inka:
 
     def display_video_and_audio(self):
         initial_frame = self.frames[0]
-        fig = plt.figure(1, figsize=(12, 6))
-        #fig.canvas.manager.window.wm_geometry("+0+0")
+        fig = plt.figure(1, figsize=(14, 8))
+        fig.canvas.manager.window.wm_geometry("+%d+%d" % (0, 0))
 
         plt.subplot(2, 2, 1)
         initial_frame_rgb = cv2.cvtColor(initial_frame, cv2.COLOR_GRAY2RGB)
@@ -286,8 +298,6 @@ class Inka:
 
         # --- wave
         plt.subplot(2, 2, 3)
-        print("sr: ", self.sr)
-        print("y len: ", len(self.y))
         librosa.display.waveshow(self.y, sr=self.sr)
         self.line_audio = plt.axvline(x=10, ymin=0, ymax=1, color="r", linewidth="1")
 
@@ -309,7 +319,16 @@ class Inka:
 
 
 if __name__ == "__main__":
-    inka = Inka()
+
+    examples = [
+        {"videopath": "video1.wmv", "audiopath": "audio1.wav", "start_x": 300, "start_y": 50},
+        {"videopath": "video2.wmv", "audiopath": "audio2.wav", "start_x": 500, "start_y": 50},
+    ]
+
+    ex = examples[0]
+    print(ex)
+
+    inka = Inka(ex["videopath"], ex["audiopath"], ex["start_x"], ex["start_y"])
     inka.load_audio_and_video()
     inka.process_video()
     inka.process_audio()
