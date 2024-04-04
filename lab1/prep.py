@@ -49,6 +49,7 @@ class Inka:
         self.signal_y = [0]
         self.signal_plot = None
         self.median_initial20 = None
+        self.roi_desc_ema = 0
 
         # --- load data
 
@@ -183,14 +184,10 @@ class Inka:
             roi_x2 = self.roi_cx + self.roi_size
             roi_y1 = self.roi_cy - self.roi_size
             roi_y2 = self.roi_cy + self.roi_size
-            # roi = frame_diff_median[self.roi_x1:self.roi_x2, self.roi_y1:self.roi_y2]
             roi = frame_diff_median[roi_y1:roi_y2, roi_x1:roi_x2]
             self.roi_color = (255, 0, 0)
-            # # already after one thresholding, now just to binarize
             ret_val, roi_binary = cv2.threshold(roi, 10, 255, cv2.THRESH_BINARY)
             roi_moments = cv2.moments(roi_binary)
-            # print(roi_moments["m00"])
-            # if 5 < roi_moments["m00"] < 10_000:
 
             y2 = np.abs(self.y2)
             audio_idx = int(i / 30 * self.sr)
@@ -214,8 +211,12 @@ class Inka:
             from_median_initial20_diff = np.abs(frame_filtered - self.median_initial20)
             roi_no_tresh = from_median_initial20_diff[roi_y1:roi_y2, roi_x1:roi_x2]
             roi_desc = np.sum(roi_no_tresh) / 10000
+
+            roi_desc = (self.frames_filtered[i] - self.frames_filtered[i-5: i]).mean() / 3
+            roi_desc = max(0, roi_desc-5)
+            self.roi_desc_ema = 0.9 * self.roi_desc_ema + 0.1 * roi_desc
             self.signal_x.append(0.033 * i)
-            self.signal_y.append(roi_desc)
+            self.signal_y.append(self.roi_desc_ema)
             print("roi desc:", roi_desc)
 
         # --- draw roi
@@ -325,7 +326,7 @@ if __name__ == "__main__":
         {"videopath": "video2.wmv", "audiopath": "audio2.wav", "start_x": 500, "start_y": 50},
     ]
 
-    ex = examples[0]
+    ex = examples[1]
     print(ex)
 
     inka = Inka(ex["videopath"], ex["audiopath"], ex["start_x"], ex["start_y"])
